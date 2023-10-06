@@ -14,29 +14,42 @@ ibm_headers = IbmAuthHelper.get_headers(URL, APIKEY, GUID)
 # Instantiate the Python client
 sdclient = SdMonitorClient(sdc_url=URL, custom_headers=ibm_headers)
 
-metrics_to_collect = {gi
+avg_metrics_to_collect = {
     # JVM metrics
-    "jmx_jvm_heap_used_percent": {"group": "avg"},
-    "jmx_jvm_gc_global_time": {"group": "avg"},
+    "jmx_jvm_heap_used_percent" : {"group": "avg"},
+    "jmx_jvm_nonHeap_used_percent" : {"group": "avg"},
+    "jmx_jvm_thread_count" : {"group": "avg"},
+    "jmx_jvm_gc_global_time" : {"group": "avg"},
+    "jmx_jvm_gc_global_count" : {"group": "avg"},
+    "jmx_jvm_class_loaded" : {"group": "avg"},
+    "jmx_jvm_class_unloaded" : {"group": "avg"},
     # System metrics
-    "sysdig_container_cpu_used_percent": {"group": "avg"},
-    "sysdig_container_thread_count": {"time": "timeAvg", "group": "avg"},
+    "sysdig_container_cpu_used_percent" : {"group": "avg"},
+    "sysdig_container_memory_used_percent" : {"group": "avg"},
     # App metrics
-    "sysdig_connection_net_request_in_count": {"time": "timeAvg", "group": "avg"},
-    "sysdig_connection_net_request_in_time": {"group": "avg"},
-    "sysdig_connection_net_request_out_count": {"time": "timeAvg", "group": "avg"},
-    "sysdig_connection_net_request_out_time": {"group": "avg"},
+    "sysdig_host_net_http_request_count" : {"group": "avg"},
+}
+min_metrics_to_collect = {
+    "sysdig_container_net_http_request_time" : {"group": "min"},
+}
+max_metrics_to_collect = {
+    "sysdig_container_net_http_request_time" : {"group": "max"},
+}
+metrics_to_collect = {
+    "min": min_metrics_to_collect,
+    "max": max_metrics_to_collect,
+    "avg": avg_metrics_to_collect,
 }
 
 run_parameters = {
- "HIGH": { "thread_count": 100, "duration": 100, "ramp": 50, "delay": 0},
- "MEDIUM": { "thread_count": 50, "duration": 100, "ramp": 25, "delay": 0},
- "LOW": { "thread_count": 24, "duration": 100, "ramp": 12, "delay": 0}
+ "TEST_HIGH_LOAD": { "thread_count": 100, "duration": 900, "ramp": 50, "delay": 0},
+ "TEST_MEDIUM_LOAD": { "thread_count": 50, "duration": 900, "ramp": 25, "delay": 0},
+ "TEST_LOW_LOAD": { "thread_count": 24, "duration": 900, "ramp": 12, "delay": 0}
 }
 
 # Write samples to a CSV file named output/<metric>.csv for metric
-def write_csv(test_name, start, end, metric, samples):
-    with open(f'output/test_{test_name}_{metric}.csv', 'w', newline='') as csvfile:
+def write_csv(test_name, metric, samples):
+    with open(f'output/{metric}_{test_name}_.csv', 'w', newline='') as csvfile:
         fieldnames = list(samples[0].keys())
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
@@ -46,7 +59,7 @@ def write_csv(test_name, start, end, metric, samples):
 
 # Preprocesses metric results and writes them a CSV file
 # in the output folder
-def write_metric_result(test_name, metric, index, res, start, end):
+def write_metric_result(test_name, metric, index, res):
     samples = res['data']
 
     processed_samples = defaultdict(dict)
@@ -60,16 +73,13 @@ def write_metric_result(test_name, metric, index, res, start, end):
         values['timestamp'] = timestamp
         processed_samples_with_timestamp.append(values)
 
-    write_csv(test_name, start, end, metric, processed_samples_with_timestamp)
+    write_csv(test_name, metric, processed_samples_with_timestamp)
 
 # Preprocesses Sysdig metric results and write a CSV file
 # with the metric results for each metric.
 def write_result(test_name, metrics_to_collect, res):
-    print(res)
-    start = res['start']
-    end = res['end']
     for i, metric in enumerate(metrics_to_collect):
-        write_metric_result(test_name, metric, i, res, start, end)
+        write_metric_result(test_name, metric, i, res)
 
 # Performs a JMeter load test with the given parameters
 def load_test(log_file = 'output_logs.txt', thread_count = 60, duration = 600, ramp = 30, delay = 0):
@@ -101,27 +111,23 @@ def get_metrics(test_name, metrics_to_collect, start = -600, end = 0):
     # Load data
     ok, res = sdclient.get_data(metrics, start, end, sampling, filter=filter)
 
-    if (not ok):
+    if ok:
+        write_result(test_name, metrics_to_collect, res)
+    else:
         print(f"Failed to pull metrics: {res}")
-        return
 
-    write_result(test_name, metrics_to_collect, res)
-
+def get_all_metrics(name, start, end):
+    for key, metrics_group in metrics_to_collect.items():
+        get_metrics(f"{key}_{name}", metrics_group, start, end)
 
 def main():
-    # 60 threads
-    # load_test(thread_count = 60, duration = 100)
-    #get_metrics(start = -100, end = 0)
-
-    # 10 threads
-    #
     for name, parameters in run_parameters.items():
         thread_count = parameters['thread_count']
         duration = parameters['duration']
         ramp = parameters['ramp']
         delay = parameters['delay']
         load_test(thread_count = thread_count, duration = duration, ramp = ramp, delay = delay)
-        get_metrics(name, metrics_to_collect, start = -duration, end = 0)
+        get_all_metrics(name, start = -duration, end = 0)
 
 if __name__ == '__main__':
     main()
