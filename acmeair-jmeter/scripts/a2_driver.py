@@ -12,41 +12,35 @@ ibm_headers = IbmAuthHelper.get_headers(URL, APIKEY, GUID)
 # Instantiate the Python client
 sdclient = SdMonitorClient(sdc_url=URL, custom_headers=ibm_headers)
 
-metrics_to_collect = {
-    # JVM metrics
-    # "jmx_jvm_heap_used_percent" : {"group": "avg"},
-    # "jmx_jvm_nonHeap_used_percent" : {"group": "avg"},
-    # "jmx_jvm_thread_count" : {"group": "avg"},
-    # "jmx_jvm_gc_global_time" : {"group": "avg"},
-    # "jmx_jvm_gc_global_count" : {"group": "avg"},
-    # "jmx_jvm_class_loaded" : {"group": "avg"},
-    # "jmx_jvm_class_unloaded" : {"group": "avg"},
-    # System metrics
-    # "sysdig_container_cpu_used_percent" : {"group": "avg"},
-    # "sysdig_container_memory_used_percent" : {"group": "avg"},
-    # App metrics
+
+standard_metrics = {
     "sysdig_container_net_http_request_time" : {"group": "avg"},
 }
-
 status_code_metrics = {
     "sysdig_container_net_http_statuscode_request_count": {"group": "avg"},
 }
-
 metrics_to_collect = {
-    "kube_namespace_name = 'acmeair-g2'": metrics_to_collect,
+    "kube_namespace_name = 'acmeair-g2'": standard_metrics,
     "kube_namespace_name = 'acmeair-g2' and net_http_statuscode in ('503', '502', '500', '400', '401', '403')": status_code_metrics,
 }
 
 run_parameters = {
- "TEST_HIGH_LOAD": { "thread_count": 600, "duration": 375, "ramp": 75, "delay": 0 },
- # "TEST_MEDIUM_LOAD": { "thread_count": 50, "duration": 900, "ramp": 25, "delay": 0},
- # "TEST_LOW_LOAD": { "thread_count": 24, "duration": 900, "ramp": 12, "delay": 0}
+    # "TEST_HIGH_LOAD": { "thread_count": 600, "duration": 900, "ramp": 25, "delay": 0 },
+    # "TEST_MEDIUM_LOAD": { "thread_count": 300, "duration": 900, "ramp": 25, "delay": 0},
+    "TEST_LOW_LOAD": { "thread_count": 150, "duration": 900, "ramp": 25, "delay": 0}
 }
+
+default_csv_header = ['acmeair-bookingservice','acmeair-customerservice','acmeair-flightservice','acmeair-authservice','acmeair-mainservice','timestamp']
 
 # Write samples to a CSV file named output/<metric>.csv for metric
 def write_csv(test_name, metric, samples):
-    with open(f'output/{metric}_{test_name}_.csv', 'w', newline='') as csvfile:
-        fieldnames = list(samples[0].keys())
+    with open(f'output/configuration1/{metric}_{test_name}_.csv', 'w', newline='') as csvfile:
+        if (len(samples) == 0):
+            fieldnames = default_csv_header
+        else:
+            fieldnames = list(samples[0].keys())
+
+        print(fieldnames)
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
@@ -119,8 +113,8 @@ def main():
         duration = parameters['duration']
         ramp = parameters['ramp']
         delay = parameters['delay']
-        # load_test(thread_count = thread_count, duration = duration, ramp = ramp, delay = delay)
-        get_all_metrics(name, start = -3900, end = -3300)
+        load_test(thread_count = thread_count, duration = duration, ramp = ramp, delay = delay)
+        get_all_metrics(name, start = -duration, end = 0)
 
 if __name__ == '__main__':
     main()
