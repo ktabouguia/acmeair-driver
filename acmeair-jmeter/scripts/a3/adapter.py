@@ -239,12 +239,13 @@ def adapt(start, end):
     return should_wait
 
 def main():
-    # reset_services(service_list, configurations['c1'])
-    # time.sleep(180)
+    reset_services(service_list, configurations['c1'])
+    time.sleep(180)
     while True:
+        print("Starting adaptation loop")
         should_wait = adapt(start = -60, end = 0)
         if should_wait == True :
-            time.sleep(180)
+            time.sleep(360)
         else:
             time.sleep(60)
 
