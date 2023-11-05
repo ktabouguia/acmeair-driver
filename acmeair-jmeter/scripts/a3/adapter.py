@@ -145,7 +145,11 @@ def compute_utility_function_by_service(means_by_services):
     return utility_by_service
 
 def find_next_configuration(cur_cpu, cur_memory, cur_pod_count):
-    current_config = configuration_maps[f'{cur_cpu}x{cur_memory}x{cur_pod_count}']
+    config_key = f'{cur_cpu}x{cur_memory}x{cur_pod_count}'
+    if config_key in configuration_maps:
+        current_config = configuration_maps[f'{cur_cpu}x{cur_memory}x{cur_pod_count}']
+    else:
+        current_config = None
 
     next_configuration = None
     if current_config == 'c1':
@@ -216,9 +220,9 @@ def adapt(start, end):
     for service in services:
         means_by_service[service]['error_rate'] = error_rate_mean_by_service[service]
 
+    should_wait = False
     # Compute utility function by service
     utilities_by_service = compute_utility_function_by_service(means_by_service)
-
     for service in services:
         print(f"\n\nAttempting to adapt service {service}")
         utility = utilities_by_service[service]
@@ -227,17 +231,22 @@ def adapt(start, end):
             execution_plan = plan(service)
             print(f"Next configuration is: {execution_plan}")
             execute(service, execution_plan)
-            time.sleep(180)
+            should_wait = True
             continue
         else:
             continue
+
+    return should_wait
 
 def main():
     # reset_services(service_list, configurations['c1'])
     # time.sleep(180)
     while True:
-        adapt(start = -60, end = 0)
-        time.sleep(60)
+        should_wait = adapt(start = -60, end = 0)
+        if should_wait == True :
+            time.sleep(180)
+        else:
+            time.sleep(60)
 
 if __name__ == '__main__':
     main()
