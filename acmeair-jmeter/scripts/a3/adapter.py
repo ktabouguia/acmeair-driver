@@ -159,19 +159,20 @@ def find_next_configuration(cur_cpu, cur_memory, cur_pod_count, down_scale = Fal
         else:
             next_configuration = { 'cpu': '250m' , 'memory': '500Mi' , 'pod_count': cur_pod_count*2 }
 
-        if next_configuration != current_config:
-            print('Downscaling....')
+        if next_configuration and  next_configuration != current_config:
+            print('Upscaling....')
     else:
         if current_config == 'c1':
-            next_configuration = configurations['c1']
+            next_configuration = None
         elif current_config == 'c2':
             next_configuration = configurations['c1']
         elif current_config == 'c3':
             next_configuration = configurations['c2']
         else:
             next_configuration = { 'cpu': '250m' , 'memory': '500Mi' , 'pod_count': cur_pod_count/2 }
-        if next_configuration != current_config:
-            print('Upscaling....')
+
+        if next_configuration and next_configuration != current_config:
+            print('Downscaling....')
 
     return next_configuration
 
@@ -182,10 +183,10 @@ def plan(service, down_scale = False):
     current_cpu, current_memory = limits['cpu'], limits['memory']
     current_pod_count = obj.model['spec']['replicas']
 
-    print(f'Current configuration for service {service}')
-    print(f'current cpu: {current_cpu}')
-    print(f'current memory: {current_memory}')
-    print(f'current pod count: {current_pod_count}')
+    # print(f'Current configuration for service {service}')
+    # print(f'current cpu: {current_cpu}')
+    # print(f'current memory: {current_memory}')
+    # print(f'current pod count: {current_pod_count}')
 
     return find_next_configuration(current_cpu, current_memory, current_pod_count, down_scale)
 
@@ -250,12 +251,14 @@ def adapt(start, end):
 
         if utility == 1 and cpu_used_mean_by_service[service] < 5:
             execution_plan = plan(service, down_scale=True)
-            execute(service, execution_plan)
+            if execution_plan:
+                execute(service, execution_plan)
             should_wait = True
             continue
         elif utility < 0.7:
             execution_plan = plan(service)
-            execute(service, execution_plan)
+            if execution_plan:
+                execute(service, execution_plan)
             should_wait = True
             continue
         else:
@@ -264,12 +267,12 @@ def adapt(start, end):
     return should_wait
 
 def main():
-    # initialize_services(service_list, configurations['c1'])
-    # time.sleep(180)
+    initialize_services(service_list, configurations['c1'])
+    time.sleep(180)
     while True:
         print("Starting adaptation loop")
         should_wait = adapt(start = -60, end = 0)
-        if should_wait == True :
+        if should_wait == True:
             time.sleep(360)
         else:
             time.sleep(10)
