@@ -17,9 +17,13 @@ sdclient = SdMonitorClient(sdc_url=URL, custom_headers=ibm_headers)
 metric_types = {
     'latency': 'sysdig_container_net_http_request_time',
     'error_rate': 'sysdig_container_net_http_statuscode_request_count',
+    "cpu_used": "sysdig_container_cpu_used_percent",
+    "memory_used": "sysdig_container_memory_used_percent",
 }
 standard_metrics = {
     "sysdig_container_net_http_request_time" : {"group": "avg"},
+    "sysdig_container_cpu_used_percent" : {"group": "avg"},
+    "sysdig_container_memory_used_percent" : {"group": "avg"},
 }
 status_code_metrics = {
     "sysdig_container_net_http_statuscode_request_count": {"group": "avg"},
@@ -27,11 +31,6 @@ status_code_metrics = {
 metrics_to_collect = {
     "kube_namespace_name = 'acmeair-g2'": standard_metrics,
     "kube_namespace_name = 'acmeair-g2' and net_http_statuscode in ('503', '502', '500', '400', '401', '403')": status_code_metrics,
-}
-run_parameters = {
-    "TEST_HIGH_LOAD": { "thread_count": 600, "duration": 900, "ramp": 25, "delay": 0 },
-    # "TEST_MEDIUM_LOAD": { "thread_count": 300, "duration": 900, "ramp": 25, "delay": 0},
-    # "TEST_LOW_LOAD": { "thread_count": 150, "duration": 900, "ramp": 25, "delay": 0}
 }
 
 configurations = {
@@ -144,7 +143,7 @@ def compute_utility_function_by_service(means_by_services):
 
     return utility_by_service
 
-def find_next_configuration(cur_cpu, cur_memory, cur_pod_count):
+def find_next_configuration(cur_cpu, cur_memory, cur_pod_count, down_scale = False):
     config_key = f'{cur_cpu}x{cur_memory}x{cur_pod_count}'
     if config_key in configuration_maps:
         current_config = configuration_maps[f'{cur_cpu}x{cur_memory}x{cur_pod_count}']
@@ -152,17 +151,32 @@ def find_next_configuration(cur_cpu, cur_memory, cur_pod_count):
         current_config = None
 
     next_configuration = None
-    if current_config == 'c1':
-        next_configuration = configurations['c2']
-    elif current_config == 'c2':
-        next_configuration = configurations['c3']
+    if down_scale == False:
+        if current_config == 'c1':
+            next_configuration = configurations['c2']
+        elif current_config == 'c2':
+            next_configuration = configurations['c3']
+        else:
+            next_configuration = { 'cpu': '250m' , 'memory': '500Mi' , 'pod_count': cur_pod_count*2 }
+
+        if next_configuration != current_config:
+            print('Downscaling....')
     else:
-        next_configuration = { 'cpu': '250m' , 'memory': '500Mi' , 'pod_count': cur_pod_count*2 }
+        if current_config == 'c1':
+            next_configuration = configurations['c1']
+        elif current_config == 'c2':
+            next_configuration = configurations['c1']
+        elif current_config == 'c3':
+            next_configuration = configurations['c2']
+        else:
+            next_configuration = { 'cpu': '250m' , 'memory': '500Mi' , 'pod_count': cur_pod_count/2 }
+        if next_configuration != current_config:
+            print('Upscaling....')
 
     return next_configuration
 
 
-def plan(service):
+def plan(service, down_scale = False):
     obj = oc.selector(f'deployment.apps/{service}').object()
     limits = obj.model['spec']['template']['spec']['containers'][0]['resources']['limits']
     current_cpu, current_memory = limits['cpu'], limits['memory']
@@ -173,7 +187,7 @@ def plan(service):
     print(f'current memory: {current_memory}')
     print(f'current pod count: {current_pod_count}')
 
-    return find_next_configuration(current_cpu, current_memory, current_pod_count)
+    return find_next_configuration(current_cpu, current_memory, current_pod_count, down_scale)
 
 def apply_resources(obj, plan):
     obj.model['spec']['template']['spec']['containers'][0]['resources']['requests']['memory'] = plan["memory"]
@@ -195,7 +209,8 @@ def execute(service, execution_plan):
     return
 
 
-def reset_services(service_list, configuration):
+def initialize_services(service_list, configuration):
+    print("Initializing resources for all services")
     for service in service_list:
         execute(service, configuration)
 
@@ -206,7 +221,8 @@ def adapt(start, end):
     services = []
     for _, metrics in metrics_grouped_by_service.items():
         for service, _ in metrics.items():
-            services.append(service)
+            if service not in services and service in service_list:
+                services.append(service)
 
     means_by_service = defaultdict(dict)
 
@@ -220,6 +236,10 @@ def adapt(start, end):
     for service in services:
         means_by_service[service]['error_rate'] = error_rate_mean_by_service[service]
 
+    cpu_used_mean_by_service = compute_mean_by_service(metrics_grouped_by_service, 'cpu_used', services)
+    for service in services:
+        means_by_service[service]['cpu_used'] = error_rate_mean_by_service[service]
+
     should_wait = False
     # Compute utility function by service
     utilities_by_service = compute_utility_function_by_service(means_by_service)
@@ -227,9 +247,14 @@ def adapt(start, end):
         print(f"\n\nAttempting to adapt service {service}")
         utility = utilities_by_service[service]
         print(f'\nUtiliy value: {utility}')
-        if utility < 0.7:
+
+        if utility == 1 and cpu_used_mean_by_service[service] < 5:
+            execution_plan = plan(service, down_scale=True)
+            execute(service, execution_plan)
+            should_wait = True
+            continue
+        elif utility < 0.7:
             execution_plan = plan(service)
-            print(f"Next configuration is: {execution_plan}")
             execute(service, execution_plan)
             should_wait = True
             continue
@@ -239,15 +264,15 @@ def adapt(start, end):
     return should_wait
 
 def main():
-    reset_services(service_list, configurations['c1'])
-    time.sleep(180)
+    # initialize_services(service_list, configurations['c1'])
+    # time.sleep(180)
     while True:
         print("Starting adaptation loop")
         should_wait = adapt(start = -60, end = 0)
         if should_wait == True :
             time.sleep(360)
         else:
-            time.sleep(60)
+            time.sleep(10)
 
 if __name__ == '__main__':
     main()
