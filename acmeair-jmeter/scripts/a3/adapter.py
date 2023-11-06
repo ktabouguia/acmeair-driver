@@ -253,13 +253,13 @@ def adapt(start, end):
             execution_plan = plan(service, down_scale=True)
             if execution_plan:
                 execute(service, execution_plan)
-            should_wait = True
+                should_wait = True
             continue
         elif utility < 0.7:
             execution_plan = plan(service)
             if execution_plan:
                 execute(service, execution_plan)
-            should_wait = True
+                should_wait = True
             continue
         else:
             continue
